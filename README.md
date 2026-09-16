@@ -1,0 +1,2 @@
+# Mediapipe-based-Sign-language-translation-system-with-Embedded-IoT
+ This system allows users to define their very own vocabulary of up to 16 custom gestures. After that it translates them into either spoken words or text displayed on an OLED or LCD unit that uses an ESP32 chip .The whole process, or pipeline, happens in three phases using just a web browser – no cloud needed, which is quit efficient.
