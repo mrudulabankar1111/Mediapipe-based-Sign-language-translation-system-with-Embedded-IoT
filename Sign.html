@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SignBridge — Gesture Trainer</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+:root {
+  --bg:#0a0e1a; --s:#111827; --s2:#1a2235;
+  --bd:rgba(99,179,237,0.15); --a:#63b3ed;
+  --g:#68d391; --o:#f6ad55; --r:#fc8181;
+  --t:#e2e8f0; --m:#718096;
+  --mono:'Space Mono',monospace; --sans:'DM Sans',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--t);font-family:var(--sans);min-height:100vh;}
+header{display:flex;align-items:center;justify-content:space-between;padding:12px 28px;border-bottom:1px solid var(--bd);background:rgba(10,14,26,0.97);position:sticky;top:0;z-index:100;}
+.logo{font-family:var(--mono);font-size:18px;color:var(--a);}
+.logo span{color:var(--g);}
+.tabs{display:flex;gap:4px;background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:4px;}
+.tab{padding:7px 18px;border-radius:7px;font-size:13px;font-family:var(--mono);color:var(--m);cursor:pointer;border:none;background:transparent;transition:all 0.2s;}
+.tab.active{background:var(--a);color:#0a0e1a;font-weight:700;}
+.page{display:none;padding:24px 28px;max-width:1200px;margin:0 auto;}
+.page.active{display:block;}
+
+/* COLLECT PAGE */
+.collect-grid{display:grid;grid-template-columns:1fr 340px;gap:20px;}
+.cam-card{background:var(--s);border:1px solid var(--bd);border-radius:16px;overflow:hidden;}
+.cam-wrap{position:relative;background:#000;aspect-ratio:4/3;}
+#collectVideo{width:100%;height:100%;object-fit:cover;display:block;transform:scaleX(-1);}
+#collectCanvas{position:absolute;top:0;left:0;width:100%;height:100%;transform:scaleX(-1);}
+.cam-overlay{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:rgba(10,14,26,0.88);border:1px solid var(--bd);padding:6px 18px;border-radius:20px;font-family:var(--mono);font-size:12px;color:var(--a);pointer-events:none;backdrop-filter:blur(4px);white-space:nowrap;}
+.rec-indicator{position:absolute;top:12px;right:12px;width:12px;height:12px;border-radius:50%;background:var(--r);display:none;animation:blink 0.8s infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
+.rec-indicator.active{display:block;}
+.cam-controls{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--bd);align-items:center;}
+.gesture-panel{background:var(--s);border:1px solid var(--bd);border-radius:16px;overflow:hidden;}
+.panel-head{padding:12px 16px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;}
+.panel-title{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--m);}
+.gesture-scroll{overflow-y:auto;max-height:420px;padding:10px;}
+.gesture-scroll::-webkit-scrollbar{width:4px;}
+.gesture-scroll::-webkit-scrollbar-thumb{background:var(--bd);}
+.gesture-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;border:1px solid var(--bd);background:var(--s2);margin-bottom:6px;cursor:pointer;transition:all 0.2s;}
+.gesture-item:hover{border-color:var(--a);}
+.gesture-item.selected{border-color:var(--g);background:rgba(104,211,145,0.08);}
+.g-icon{width:36px;height:36px;border-radius:8px;background:var(--s);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
+.g-info{flex:1;}
+.g-name{font-size:13px;font-weight:600;}
+.g-desc{font-size:11px;color:var(--m);margin-top:2px;font-family:var(--mono);}
+.g-count{font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:4px;background:var(--s);border:1px solid var(--bd);color:var(--m);}
+.g-count.good{border-color:var(--g);color:var(--g);}
+.collect-info{background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:14px 16px;margin-top:12px;}
+.info-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.info-label{font-size:12px;color:var(--m);font-family:var(--mono);}
+.info-val{font-size:14px;font-weight:600;font-family:var(--mono);color:var(--a);}
+.progress-bar{height:6px;background:var(--s);border-radius:3px;overflow:hidden;margin-top:4px;}
+.progress-fill{height:100%;background:var(--g);border-radius:3px;transition:width 0.2s;}
+#countdown{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-family:var(--mono);font-size:80px;font-weight:700;color:var(--g);text-shadow:0 0 30px var(--g);display:none;pointer-events:none;}
+
+/* TRAIN PAGE */
+.train-layout{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+.card{background:var(--s);border:1px solid var(--bd);border-radius:16px;padding:20px;}
+.card-title{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--m);margin-bottom:14px;}
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;}
+.stat{background:var(--s2);border-radius:8px;padding:12px;text-align:center;}
+.stat-v{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--a);}
+.stat-l{font-size:11px;color:var(--m);margin-top:2px;}
+.prog-wrap{margin-bottom:14px;}
+.prog-label{display:flex;justify-content:space-between;font-size:12px;font-family:var(--mono);color:var(--m);margin-bottom:5px;}
+.prog-track{height:6px;background:var(--s2);border-radius:3px;overflow:hidden;}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--g),var(--a));border-radius:3px;transition:width 0.3s;width:0%;}
+#trainLog{background:var(--s2);border:1px solid var(--bd);border-radius:8px;padding:12px;height:220px;overflow-y:auto;font-family:var(--mono);font-size:11px;color:var(--m);line-height:1.8;}
+#trainLog::-webkit-scrollbar{width:4px;}
+#trainLog::-webkit-scrollbar-thumb{background:var(--bd);}
+.log-ok{color:var(--g);}.log-info{color:var(--a);}.log-w{color:var(--o);}.log-e{color:var(--r);}
+canvas#lossChart{width:100%;height:180px;}
+
+/* RECOGNIZE PAGE */
+.recog-grid{display:grid;grid-template-columns:1fr 360px;gap:20px;}
+.big-pred{text-align:center;padding:24px 16px;border-bottom:1px solid var(--bd);}
+.pred-icon{font-size:64px;min-height:72px;line-height:1;}
+.pred-phrase{font-size:22px;font-weight:700;color:var(--g);margin-top:8px;min-height:32px;}
+.pred-conf{font-size:12px;color:var(--m);font-family:var(--mono);margin-top:4px;}
+.top3-list{padding:14px 16px;}
+.top3-item{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.top3-bar-wrap{flex:1;height:6px;background:var(--s2);border-radius:3px;overflow:hidden;}
+.top3-bar{height:100%;background:var(--a);border-radius:3px;transition:width 0.15s;}
+.top3-pct{font-family:var(--mono);font-size:11px;color:var(--m);width:36px;text-align:right;}
+
+/* BUTTONS */
+.btn{padding:8px 18px;border-radius:8px;border:1px solid var(--bd);background:var(--s2);color:var(--t);font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer;transition:all 0.2s;}
+.btn:hover{border-color:var(--a);color:var(--a);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn.primary{background:var(--a);color:#0a0e1a;border-color:var(--a);font-weight:700;}
+.btn.primary:hover{opacity:0.85;}
+.btn.green{background:var(--g);color:#0a0e1a;border-color:var(--g);font-weight:700;}
+.btn.red{border-color:var(--r);color:var(--r);}
+.btn.red:hover{background:rgba(252,129,129,0.1);}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+#notif{position:fixed;bottom:20px;right:20px;background:var(--s2);border:1px solid var(--g);color:var(--g);padding:10px 18px;border-radius:10px;font-family:var(--mono);font-size:12px;opacity:0;transform:translateY(8px);transition:all 0.3s;pointer-events:none;z-index:999;}
+#notif.show{opacity:1;transform:translateY(0);}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Sign<span>Bridge</span></div>
+  <div class="tabs">
+    <button class="tab active" onclick="showPage('collect')">① Collect</button>
+    <button class="tab"        onclick="showPage('train')">② Train</button>
+    <button class="tab"        onclick="showPage('recognize')">③ Recognize</button>
+  </div>
+  <div style="font-family:var(--mono);font-size:11px;color:var(--m)" id="tfInfo">TF.js loading...</div>
+</header>
+
+<!-- PAGE 1 — COLLECT -->
+<div class="page active" id="page-collect">
+  <div style="margin-bottom:16px">
+    <div style="font-size:18px;font-weight:600;margin-bottom:4px">Step 1 — Collect Gesture Samples</div>
+    <div style="font-size:13px;color:var(--m)">Select a phrase → hold the gesture → click Record (or press Space). Collect <b>40+ samples</b> per gesture for best accuracy.</div>
+  </div>
+  <div class="collect-grid">
+    <div>
+      <div class="cam-card">
+        <div class="cam-wrap">
+          <video id="collectVideo" autoplay playsinline muted></video>
+          <canvas id="collectCanvas"></canvas>
+          <div class="cam-overlay" id="collectOverlay">Start camera to begin</div>
+          <div class="rec-indicator" id="recDot"></div>
+          <div id="countdown"></div>
+        </div>
+        <div class="cam-controls">
+          <button class="btn primary" id="btnCam" onclick="startCollectCam()">▶ Camera</button>
+          <button class="btn green"   id="btnRecord" onclick="startRecording()" disabled>⏺ Record (Space)</button>
+          <button class="btn red"     onclick="clearGestureData()">🗑 Clear Selected</button>
+          <span style="font-size:11px;font-family:var(--mono);color:var(--m);margin-left:auto" id="lmStatus">No hand</span>
+        </div>
+      </div>
+      <div class="collect-info">
+        <div class="info-row">
+          <span class="info-label">Selected Gesture</span>
+          <span class="info-val" id="selectedGestureName">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Samples Collected</span>
+          <span class="info-val" id="sampleCount">0 / 60</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" id="collectProgress" style="width:0%"></div></div>
+        <div style="margin-top:10px;font-size:11px;color:var(--m);font-family:var(--mono)" id="gestureHint">← Select a gesture from the list</div>
+      </div>
+    </div>
+    <div class="gesture-panel">
+      <div class="panel-head">
+        <span class="panel-title">16 Phrases</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--m)" id="totalSamples">0 total samples</span>
+      </div>
+      <div class="gesture-scroll" id="gestureList"></div>
+      <div style="padding:10px 12px;border-top:1px solid var(--bd);display:flex;gap:8px;">
+        <button class="btn" style="flex:1;font-size:12px" onclick="exportData()">💾 Export Data</button>
+        <button class="btn" style="flex:1;font-size:12px" onclick="importData()">📂 Import Data</button>
+        <input type="file" id="importFile" accept=".json" style="display:none" onchange="handleImport(this)">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PAGE 2 — TRAIN -->
+<div class="page" id="page-train">
+  <div style="margin-bottom:16px">
+    <div style="font-size:18px;font-weight:600;margin-bottom:4px">Step 2 — Train the AI</div>
+    <div style="font-size:13px;color:var(--m)">Once you have 40+ samples per gesture, train a neural network entirely in your browser.</div>
+  </div>
+  <div class="train-layout">
+    <div>
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-title">Dataset Summary</div>
+        <div id="datasetSummary" style="font-size:13px;color:var(--m)">No data collected yet.</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Training Config</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div>
+            <label style="font-size:11px;font-family:var(--mono);color:var(--m);display:block;margin-bottom:4px">EPOCHS</label>
+            <input id="cfgEpochs" type="number" value="80" min="20" max="300"
+              style="width:100%;background:var(--s2);border:1px solid var(--bd);color:var(--t);padding:8px 10px;border-radius:7px;font-family:var(--mono);font-size:13px;">
+          </div>
+          <div>
+            <label style="font-size:11px;font-family:var(--mono);color:var(--m);display:block;margin-bottom:4px">LEARNING RATE</label>
+            <select id="cfgLR"
+              style="width:100%;background:var(--s2);border:1px solid var(--bd);color:var(--t);padding:8px 10px;border-radius:7px;font-family:var(--mono);font-size:13px;">
+              <option value="0.001" selected>0.001</option>
+              <option value="0.0005">0.0005</option>
+              <option value="0.003">0.003</option>
+            </select>
+          </div>
+        </div>
+        <div class="stat-row">
+          <div class="stat"><div class="stat-v" id="tEpoch">—</div><div class="stat-l">Epoch</div></div>
+          <div class="stat"><div class="stat-v" style="color:var(--g)" id="tAcc">—</div><div class="stat-l">Accuracy</div></div>
+          <div class="stat"><div class="stat-v" style="color:var(--r)" id="tLoss">—</div><div class="stat-l">Loss</div></div>
+        </div>
+        <div class="prog-wrap">
+          <div class="prog-label"><span id="progLabel">Ready</span><span id="progPct">0%</span></div>
+          <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn green" id="btnTrain" onclick="startTraining()">▶ Train Model</button>
+          <button class="btn red"   id="btnStopTrain" onclick="stopTraining()" disabled>■ Stop</button>
+          <button class="btn"       onclick="saveModel()" id="btnSave" disabled>💾 Save Model</button>
+          <button class="btn"       onclick="loadModel()">📂 Load Model</button>
+          <input type="file" id="loadModelFile" accept=".json" style="display:none" onchange="handleModelLoad(this)">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Training Log</div>
+      <canvas id="lossChart" style="margin-bottom:12px"></canvas>
+      <div id="trainLog"></div>
+    </div>
+  </div>
+</div>
+
+<!-- PAGE 3 — RECOGNIZE -->
+<div class="page" id="page-recognize">
+  <div style="margin-bottom:16px">
+    <div style="font-size:18px;font-weight:600;margin-bottom:4px">Step 3 — Live Recognition</div>
+    <div style="font-size:13px;color:var(--m)">Train the model first, then come here for live gesture recognition.</div>
+  </div>
+  <div class="recog-grid">
+    <div class="cam-card">
+      <div class="cam-wrap">
+        <video id="recogVideo" autoplay playsinline muted></video>
+        <canvas id="recogCanvas" style="position:absolute;top:0;left:0;width:100%;height:100%;transform:scaleX(-1)"></canvas>
+        <div class="cam-overlay" id="recogOverlay">Start camera</div>
+      </div>
+      <div class="cam-controls">
+        <button class="btn primary" onclick="startRecogCam()">▶ Camera</button>
+        <span style="font-size:12px;color:var(--m);font-family:var(--mono)" id="recogFps">-- fps</span>
+        <span style="font-size:12px;color:var(--m);font-family:var(--mono);margin-left:auto" id="modelInfo">No model</span>
+      </div>
+    </div>
+    <div class="cam-card">
+      <div class="big-pred">
+        <div class="pred-icon" id="predIcon">🤚</div>
+        <div class="pred-phrase" id="predPhrase">Show a gesture</div>
+        <div class="pred-conf" id="predConf">—</div>
+      </div>
+      <div class="top3-list" id="top3List"></div>
+      <div style="padding:14px 16px;border-top:1px solid var(--bd)">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--m);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">Send to ESP32</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="espIP" value="192.168.1.100" placeholder="ESP32 IP"
+            style="flex:1;background:var(--s2);border:1px solid var(--bd);color:var(--t);padding:7px 10px;border-radius:7px;font-family:var(--mono);font-size:12px;">
+          <button class="btn green" style="font-size:12px" onclick="sendToESP()">SEND</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="notif"></div>
+
+<script>
+// ── GESTURE DEFINITIONS ──────────────────────────────
+const GESTURES = [
+  { id:0,  icon:'👋', name:'Hello',           hint:'Open palm, wave hand side to side' },
+  { id:1,  icon:'👍', name:'Yes',             hint:'Thumbs up — fist with thumb pointing up' },
+  { id:2,  icon:'👎', name:'No',              hint:'Thumbs down — fist with thumb pointing down' },
+  { id:3,  icon:'👌', name:'Okay',            hint:'Touch index fingertip to thumb tip, other fingers spread' },
+  { id:4,  icon:'✊', name:'Stop',            hint:'Closed fist, all fingers curled' },
+  { id:5,  icon:'🤙', name:'How are you?',    hint:'Pinky and thumb extended (shaka / hang loose)' },
+  { id:6,  icon:'🖐', name:'How can I help?', hint:'All 5 fingers spread wide, palm facing out' },
+  { id:7,  icon:'🤌', name:'I am Hungry',     hint:'Pinch all fingertips together pointing up' },
+  { id:8,  icon:'🫳', name:'I am Thirsty',    hint:'Index and middle fingers extended, rest curled' },
+  { id:9,  icon:'🆘', name:'I need Help',     hint:'Thumb up inside closed fist (ASL help)' },
+  { id:10, icon:'📞', name:'Call the Doctor', hint:'Thumb and pinky extended, middle 3 curled (phone sign)' },
+  { id:11, icon:'😴', name:'I feel Sleepy',   hint:'All fingers spread then slowly close to palm' },
+  { id:12, icon:'🙏', name:'Thank You',       hint:'Flat hand, fingertips touch chin then move forward' },
+  { id:13, icon:'🫱', name:"You're Welcome",  hint:'Index finger points forward, other fingers curled' },
+  { id:14, icon:'☀️', name:'Have a Nice Day', hint:'Four fingers together, thumb out (L-shape rotated)' },
+  { id:15, icon:'❤️', name:'I Love You',      hint:'Index, pinky and thumb extended (ILY sign)' },
+];
+
+// ── STATE ────────────────────────────────────────────
+let gestureData = {};
+GESTURES.forEach(g => gestureData[g.id] = []);
+
+let selectedGesture = null;
+let isRecording = false;
+let recordBuffer = [];
+const TARGET_SAMPLES = 60;
+const FEATURES = 63;
+
+let collectHands = null, collectCamera = null, collectStream = null;
+let recogHands = null, recogCamera = null, recogStream = null;
+let trainedModel = null;
+let stopTrainFlag = false;
+let accHist = [], lossHist = [], valAccHist = [];
+let lastPrediction = null;
+let recogFpsCount = 0, recogFpsLast = Date.now();
+
+// ── INIT ─────────────────────────────────────────────
+tf.ready().then(() => {
+  document.getElementById('tfInfo').textContent =
+    'TF.js ' + tf.version.tfjs + ' · ' + tf.getBackend().toUpperCase();
+  tlog('TF.js ready · backend: ' + tf.getBackend(), 'ok');
+});
+
+renderGestureList();
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !isRecording && selectedGesture !== null) {
+    e.preventDefault(); startRecording();
+  }
+});
+
+// ── GESTURE LIST ─────────────────────────────────────
+function renderGestureList() {
+  const el = document.getElementById('gestureList');
+  el.innerHTML = '';
+  let total = 0;
+  GESTURES.forEach(g => {
+    const count = gestureData[g.id].length;
+    total += count;
+    const good = count >= TARGET_SAMPLES;
+    el.innerHTML += `
+      <div class="gesture-item ${selectedGesture===g.id?'selected':''}"
+           id="gi${g.id}" onclick="selectGesture(${g.id})">
+        <div class="g-icon">${g.icon}</div>
+        <div class="g-info">
+          <div class="g-name">${g.name}</div>
+          <div class="g-desc">${g.hint.slice(0,38)}${g.hint.length>38?'...':''}</div>
+        </div>
+        <div class="g-count ${good?'good':''}">${count}</div>
+      </div>`;
+  });
+  document.getElementById('totalSamples').textContent = total + ' total';
+  updateDatasetSummary();
+}
+
+function selectGesture(id) {
+  selectedGesture = id;
+  const g = GESTURES[id];
+  document.getElementById('selectedGestureName').textContent = g.icon + ' ' + g.name;
+  document.getElementById('gestureHint').textContent = '💡 ' + g.hint;
+  document.getElementById('btnRecord').disabled = !collectStream;
+  updateCollectProgress(id);
+  renderGestureList();
+}
+
+function updateCollectProgress(id) {
+  const count = gestureData[id].length;
+  const pct = Math.min(100, (count / TARGET_SAMPLES) * 100);
+  document.getElementById('sampleCount').textContent = count + ' / ' + TARGET_SAMPLES;
+  document.getElementById('collectProgress').style.width = pct + '%';
+}
+
+// ── CAMERA — COLLECT ─────────────────────────────────
+async function startCollectCam() {
+  try {
+    collectStream = await navigator.mediaDevices.getUserMedia(
+      {video:{width:640,height:480,facingMode:'user'}}
+    );
+    const v = document.getElementById('collectVideo');
+    const c = document.getElementById('collectCanvas');
+    v.srcObject = collectStream;
+    await v.play();
+    c.width = 640; c.height = 480;
+
+    collectHands = new Hands({locateFile: f =>
+      `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+    collectHands.setOptions({
+      maxNumHands:1, modelComplexity:1,
+      minDetectionConfidence:0.7, minTrackingConfidence:0.6
+    });
+    collectHands.onResults(onCollectResults);
+
+    collectCamera = new Camera(v, {
+      onFrame: async () => { await collectHands.send({image:v}); },
+      width:640, height:480
+    });
+    collectCamera.start();
+
+    document.getElementById('collectOverlay').textContent =
+      'Select a gesture and click Record';
+    if (selectedGesture !== null)
+      document.getElementById('btnRecord').disabled = false;
+    notify('Camera started ✓');
+  } catch(e) { notify('Camera error: ' + e.message, true); }
+}
+
+let currentLandmarks = null;
+
+function onCollectResults(results) {
+  const c = document.getElementById('collectCanvas');
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  if (!results.multiHandLandmarks?.length) {
+    document.getElementById('lmStatus').textContent = 'No hand';
+    currentLandmarks = null;
+    return;
+  }
+
+  const lm = results.multiHandLandmarks[0];
+  currentLandmarks = lm;
+  document.getElementById('lmStatus').textContent = '✓ Hand detected';
+
+  drawConnectors(ctx, lm, HAND_CONNECTIONS,
+    {color:'rgba(104,211,145,0.6)', lineWidth:2});
+  drawLandmarks(ctx, lm,
+    {color:'#63b3ed', fillColor:'rgba(99,179,237,0.35)', lineWidth:1, radius:4});
+
+  if (isRecording && currentLandmarks) {
+    const features = extractFeatures(lm);
+    recordBuffer.push(features);
+    document.getElementById('collectOverlay').textContent =
+      'Recording... ' + recordBuffer.length + '/30';
+  }
+}
+
+// ── RECORDING ────────────────────────────────────────
+function startRecording() {
+  if (selectedGesture === null) { notify('Select a gesture first!', true); return; }
+  if (!collectStream) { notify('Start camera first!', true); return; }
+
+  let count = 3;
+  const cd = document.getElementById('countdown');
+  cd.style.display = 'block';
+  cd.textContent = count;
+
+  const interval = setInterval(() => {
+    count--;
+    if (count > 0) {
+      cd.textContent = count;
+    } else {
+      clearInterval(interval);
+      cd.style.display = 'none';
+      doRecord();
+    }
+  }, 1000);
+}
+
+function doRecord() {
+  isRecording = true;
+  recordBuffer = [];
+  document.getElementById('recDot').classList.add('active');
+  document.getElementById('btnRecord').disabled = true;
+  document.getElementById('collectOverlay').textContent = 'Recording...';
+
+  setTimeout(() => {
+    isRecording = false;
+    document.getElementById('recDot').classList.remove('active');
+    document.getElementById('btnRecord').disabled = false;
+
+    if (recordBuffer.length < 5) {
+      notify('Not enough frames — keep hand visible!', true);
+      document.getElementById('collectOverlay').textContent =
+        'Try again — hand not detected';
+      return;
+    }
+
+    recordBuffer.forEach(f => gestureData[selectedGesture].push(f));
+    updateCollectProgress(selectedGesture);
+    renderGestureList();
+
+    const count = gestureData[selectedGesture].length;
+    document.getElementById('collectOverlay').textContent =
+      '✓ Captured ' + recordBuffer.length + ' frames · Total: ' + count;
+    notify('Captured ' + recordBuffer.length +
+      ' samples for ' + GESTURES[selectedGesture].name);
+  }, 2000);
+}
+
+function clearGestureData() {
+  if (selectedGesture === null) return;
+  if (!confirm('Clear all samples for ' + GESTURES[selectedGesture].name + '?')) return;
+  gestureData[selectedGesture] = [];
+  updateCollectProgress(selectedGesture);
+  renderGestureList();
+  notify('Cleared samples for ' + GESTURES[selectedGesture].name);
+}
+
+// ── FEATURE EXTRACTION ───────────────────────────────
+function extractFeatures(lm) {
+  const raw = lm.map(p => [p.x, p.y, p.z]);
+  const wx = raw[0][0], wy = raw[0][1], wz = raw[0][2];
+  const centered = raw.map(p => [p[0]-wx, p[1]-wy, p[2]-wz]);
+  const scale = Math.sqrt(
+    centered[9][0]**2 + centered[9][1]**2 + centered[9][2]**2
+  ) || 1;
+  const normalized = centered.map(p =>
+    [p[0]/scale, p[1]/scale, p[2]/scale]);
+  return normalized.flat();
+}
+
+// ── DATA EXPORT / IMPORT ─────────────────────────────
+function exportData() {
+  const total = Object.values(gestureData).reduce((s,v)=>s+v.length,0);
+  if (total === 0) { notify('No data to export!', true); return; }
+  const blob = new Blob([JSON.stringify({
+    version:1,
+    gestures:GESTURES.map(g=>g.name),
+    data:gestureData
+  })], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'signbridge_gesture_data.json';
+  a.click();
+  notify('Data exported (' + total + ' samples)');
+}
+
+function importData() { document.getElementById('importFile').click(); }
+
+function handleImport(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const d = JSON.parse(e.target.result);
+      if (d.data) {
+        Object.entries(d.data).forEach(([k,v]) => {
+          gestureData[parseInt(k)] = v;
+        });
+        renderGestureList();
+        notify('Data imported successfully ✓');
+      }
+    } catch(err) { notify('Import failed: ' + err.message, true); }
+  };
+  reader.readAsText(file);
+}
+
+// ── MODEL ARCHITECTURE ───────────────────────────────
+function buildModel() {
+  const m = tf.sequential();
+
+  m.add(tf.layers.dense({
+    inputShape:[FEATURES], units:256, activation:'relu',
+    kernelRegularizer: tf.regularizers.l2({l2:0.001})
+  }));
+  m.add(tf.layers.batchNormalization());
+  m.add(tf.layers.dropout({rate:0.3}));
+
+  m.add(tf.layers.dense({
+    units:256, activation:'relu',
+    kernelRegularizer: tf.regularizers.l2({l2:0.001})
+  }));
+  m.add(tf.layers.batchNormalization());
+  m.add(tf.layers.dropout({rate:0.3}));
+
+  m.add(tf.layers.dense({units:128, activation:'relu'}));
+  m.add(tf.layers.batchNormalization());
+  m.add(tf.layers.dropout({rate:0.2}));
+
+  m.add(tf.layers.dense({units:64, activation:'relu'}));
+  m.add(tf.layers.dropout({rate:0.2}));
+
+  m.add(tf.layers.dense({units:16, activation:'softmax'}));
+
+  const lr = parseFloat(document.getElementById('cfgLR').value);
+  m.compile({
+    optimizer: tf.train.adam(lr),
+    loss: 'categoricalCrossentropy',
+    metrics: ['accuracy']
+  });
+  return m;
+}
+
+// ── TRAINING ─────────────────────────────────────────
+async function startTraining() {
+  const counts = GESTURES.map(g => gestureData[g.id].length);
+  const minCount = Math.min(...counts);
+  const totalSamples = counts.reduce((a,b)=>a+b,0);
+
+  if (minCount < 10) {
+    const missing = GESTURES
+      .filter(g => gestureData[g.id].length < 10)
+      .map(g=>g.name).join(', ');
+    notify('Need 10+ samples for: ' + missing, true);
+    return;
+  }
+
+  stopTrainFlag = false;
+  accHist=[]; lossHist=[]; valAccHist=[];
+  document.getElementById('btnTrain').disabled = true;
+  document.getElementById('btnStopTrain').disabled = false;
+  document.getElementById('btnSave').disabled = true;
+  tlog('Building dataset: ' + totalSamples + ' total samples', 'info');
+
+  const minC = Math.min(...counts);
+  const XArr = [], yArr = [];
+
+  GESTURES.forEach(g => {
+    const samples = gestureData[g.id];
+    const shuffled = [...samples].sort(() => Math.random() - 0.5);
+    const take = Math.min(samples.length, Math.max(minC, 30));
+    shuffled.slice(0, take).forEach(feat => {
+      XArr.push(feat);
+      yArr.push(g.id);
+    });
+  });
+
+  tlog('Training samples: ' + XArr.length + ' · Classes: 16', 'ok');
+
+  const augX = [], augY = [];
+  XArr.forEach((x, i) => {
+    augX.push(x);
+    augY.push(yArr[i]);
+    for (let n = 0; n < 2; n++) {
+      augX.push(x.map(v => v + (Math.random()-0.5)*0.02));
+      augY.push(yArr[i]);
+    }
+  });
+
+  tlog('After augmentation: ' + augX.length + ' samples', 'info');
+
+  const idx = Array.from({length:augX.length},(_,i)=>i)
+    .sort(()=>Math.random()-0.5);
+  const XShuf = idx.map(i=>augX[i]);
+  const yShuf = idx.map(i=>augY[i]);
+
+  const splitAt = Math.floor(XShuf.length * 0.85);
+  const xTrain = tf.tensor2d(XShuf.slice(0, splitAt));
+  const yTrain = tf.oneHot(
+    tf.tensor1d(yShuf.slice(0, splitAt), 'int32'), 16).toFloat();
+  const xVal = tf.tensor2d(XShuf.slice(splitAt));
+  const yVal = tf.oneHot(
+    tf.tensor1d(yShuf.slice(splitAt), 'int32'), 16).toFloat();
+
+  if (trainedModel) { trainedModel.dispose(); trainedModel = null; }
+  trainedModel = buildModel();
+  tlog('Model: ' + trainedModel.countParams().toLocaleString() +
+    ' parameters', 'info');
+
+  const EPOCHS = parseInt(document.getElementById('cfgEpochs').value);
+  const BATCH = 32;
+  let bestValAcc = 0, noImprove = 0;
+  const PATIENCE = 15;
+
+  for (let ep = 0; ep < EPOCHS; ep++) {
+    if (stopTrainFlag) { tlog('Stopped by user', 'w'); break; }
+
+    const h = await trainedModel.fit(xTrain, yTrain, {
+      batchSize: BATCH,
+      validationData: [xVal, yVal],
+      epochs: 1,
+      shuffle: true,
+      verbose: 0,
+    });
+
+    const acc    = h.history.acc?.[0]    ?? h.history.accuracy?.[0]    ?? 0;
+    const loss   = h.history.loss[0];
+    const valAcc = h.history.val_acc?.[0] ?? h.history.val_accuracy?.[0] ?? 0;
+
+    accHist.push(acc); lossHist.push(loss); valAccHist.push(valAcc);
+
+    const pct = Math.round(((ep+1)/EPOCHS)*100);
+    document.getElementById('progFill').style.width = pct + '%';
+    document.getElementById('progPct').textContent  = pct + '%';
+    document.getElementById('progLabel').textContent =
+      'Epoch ' + (ep+1) + '/' + EPOCHS;
+    document.getElementById('tEpoch').textContent =
+      (ep+1) + '/' + EPOCHS;
+    document.getElementById('tAcc').textContent =
+      (acc*100).toFixed(1) + '%';
+    document.getElementById('tLoss').textContent = loss.toFixed(4);
+
+    drawLossChart();
+
+    if ((ep+1) % 5 === 0 || ep < 5) {
+      tlog('Ep ' + String(ep+1).padStart(3) +
+        ' | acc: ' + (acc*100).toFixed(1) +
+        '% | val: ' + (valAcc*100).toFixed(1) +
+        '% | loss: ' + loss.toFixed(4),
+        valAcc > 0.92 ? 'ok' : 'info');
+    }
+
+    if (valAcc > bestValAcc + 0.005) { bestValAcc = valAcc; noImprove = 0; }
+    else noImprove++;
+    if (noImprove >= PATIENCE) {
+      tlog('Early stop · best val: ' +
+        (bestValAcc*100).toFixed(1)+'%', 'w');
+      break;
+    }
+
+    if (noImprove === 8) {
+      const curLR = trainedModel.optimizer.learningRate;
+      trainedModel.optimizer.learningRate = curLR * 0.3;
+      tlog('LR → ' + (curLR*0.3).toExponential(2), 'w');
+    }
+
+    await tf.nextFrame();
+  }
+
+  xTrain.dispose(); yTrain.dispose();
+  xVal.dispose();   yVal.dispose();
+
+  tlog('✅ Training complete! Val accuracy: ' +
+    (bestValAcc*100).toFixed(1) + '%', 'ok');
+  notify('Training done! Accuracy: ' + (bestValAcc*100).toFixed(1) + '%');
+
+  document.getElementById('btnTrain').disabled = false;
+  document.getElementById('btnStopTrain').disabled = true;
+  document.getElementById('btnSave').disabled = false;
+  document.getElementById('modelInfo').textContent = 'Model ready ✓';
+}
+
+function stopTraining() {
+  stopTrainFlag = true;
+  document.getElementById('btnStopTrain').disabled = true;
+}
+
+// ── SAVE / LOAD MODEL ────────────────────────────────
+async function saveModel() {
+  if (!trainedModel) { notify('No model to save', true); return; }
+  await trainedModel.save('downloads://signbridge_gesture_model');
+  exportData();
+  tlog('Model saved as signbridge_gesture_model.json + .bin', 'ok');
+  notify('Model + data saved!');
+}
+
+function loadModel() { document.getElementById('loadModelFile').click(); }
+
+async function handleModelLoad(input) {
+  const file = input.files[0];
+  if (!file) return;
+  try {
+    const url = URL.createObjectURL(file);
+    trainedModel = await tf.loadLayersModel(url);
+    document.getElementById('modelInfo').textContent = 'Model loaded ✓';
+    tlog('Model loaded from file', 'ok');
+    notify('Model loaded ✓');
+  } catch(e) {
+    notify('Load failed: ' + e.message, true);
+    tlog('Model load error: ' + e.message, 'e');
+  }
+}
+
+// ── LOSS CHART ───────────────────────────────────────
+function drawLossChart() {
+  const canvas = document.getElementById('lossChart');
+  const ctx = canvas.getContext('2d');
+  canvas.width  = canvas.offsetWidth || 400;
+  canvas.height = 160;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (accHist.length < 2) return;
+
+  const W = canvas.width, H = canvas.height;
+  const pad = {t:8, r:8, b:24, l:36};
+  const gW = W - pad.l - pad.r;
+  const gH = H - pad.t - pad.b;
+
+  ctx.strokeStyle = 'rgba(99,179,237,0.08)';
+  ctx.lineWidth = 0.5;
+  for (let i=0; i<=4; i++) {
+    const y = pad.t + (gH/4)*i;
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    ctx.fillStyle='#718096'; ctx.font='9px monospace';
+    ctx.fillText((100-i*25)+'%', 0, y+4);
+  }
+
+  const drawLine = (data, color) => {
+    if (data.length < 2) return;
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.beginPath();
+    data.forEach((v,i) => {
+      const x = pad.l + (i/(data.length-1))*gW;
+      const y = pad.t + gH - v*gH;
+      i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+  };
+
+  drawLine(accHist,    '#68d391');
+  drawLine(valAccHist, '#f6ad55');
+
+  ctx.font='10px monospace';
+  ctx.fillStyle='#68d391'; ctx.fillText('● Train', pad.l, H-6);
+  ctx.fillStyle='#f6ad55'; ctx.fillText('● Val',   pad.l+60, H-6);
+}
+
+// ── CAMERA — RECOGNIZE ───────────────────────────────
+async function startRecogCam() {
+  if (!trainedModel) { notify('Train a model first!', true); return; }
+  try {
+    recogStream = await navigator.mediaDevices.getUserMedia(
+      {video:{width:640,height:480,facingMode:'user'}}
+    );
+    const v = document.getElementById('recogVideo');
+    const c = document.getElementById('recogCanvas');
+    v.srcObject = recogStream;
+    await v.play();
+    c.width = 640; c.height = 480;
+
+    recogHands = new Hands({locateFile: f =>
+      `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+    recogHands.setOptions({
+      maxNumHands:1, modelComplexity:1,
+      minDetectionConfidence:0.75, minTrackingConfidence:0.65
+    });
+    recogHands.onResults(onRecogResults);
+
+    recogCamera = new Camera(v, {
+      onFrame: async () => {
+        await recogHands.send({image:v});
+        recogFpsCount++;
+        const now = Date.now();
+        if (now - recogFpsLast > 1000) {
+          document.getElementById('recogFps').textContent =
+            recogFpsCount + ' fps';
+          recogFpsCount = 0; recogFpsLast = now;
+        }
+      },
+      width:640, height:480
+    });
+    recogCamera.start();
+    document.getElementById('recogOverlay').textContent = 'Detecting...';
+    notify('Camera started ✓');
+  } catch(e) { notify('Camera error: ' + e.message, true); }
+}
+
+const SMOOTH_FRAMES = 6;
+let predBuffer = [];
+
+async function onRecogResults(results) {
+  const c = document.getElementById('recogCanvas');
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  if (!results.multiHandLandmarks?.length) {
+    document.getElementById('recogOverlay').textContent = 'Show your hand';
+    predBuffer = [];
+    return;
+  }
+
+  const lm = results.multiHandLandmarks[0];
+
+  drawConnectors(ctx, lm, HAND_CONNECTIONS,
+    {color:'rgba(104,211,145,0.65)', lineWidth:2});
+  drawLandmarks(ctx, lm,
+    {color:'#63b3ed', fillColor:'rgba(99,179,237,0.35)', lineWidth:1, radius:4});
+
+  if (!trainedModel) return;
+
+  const features = extractFeatures(lm);
+  const tensor = tf.tensor2d([features]);
+  const pred   = trainedModel.predict(tensor);
+  const probs  = await pred.data();
+  tensor.dispose(); pred.dispose();
+
+  predBuffer.push(Array.from(probs));
+  if (predBuffer.length > SMOOTH_FRAMES) predBuffer.shift();
+
+  const avgProbs = new Array(16).fill(0);
+  predBuffer.forEach(p =>
+    p.forEach((v,i) => avgProbs[i] += v / predBuffer.length));
+
+  const sorted = avgProbs
+    .map((p,i) => ({id:i, conf:p}))
+    .sort((a,b) => b.conf - a.conf);
+
+  const top = sorted[0];
+  const g   = GESTURES[top.id];
+
+  if (top.conf > 0.55) {
+    document.getElementById('predIcon').textContent   = g.icon;
+    document.getElementById('predPhrase').textContent = g.name;
+    document.getElementById('predConf').textContent   =
+      Math.round(top.conf*100) + '% confidence';
+    document.getElementById('recogOverlay').textContent =
+      g.icon + ' ' + g.name;
+    lastPrediction = g.name;
+  } else {
+    document.getElementById('predPhrase').textContent = 'Uncertain...';
+    document.getElementById('predConf').textContent   =
+      Math.round(top.conf*100) + '%';
+    document.getElementById('recogOverlay').textContent =
+      'Hold gesture steady';
+  }
+
+  const top3 = sorted.slice(0,3);
+  document.getElementById('top3List').innerHTML = top3.map(item => {
+    const gi = GESTURES[item.id];
+    return `<div class="top3-item">
+      <span style="font-size:20px;width:28px">${gi.icon}</span>
+      <span style="font-size:12px;width:110px;color:var(--t)">${gi.name}</span>
+      <div class="top3-bar-wrap">
+        <div class="top3-bar" style="width:${item.conf*100}%;
+          background:${item===top?'var(--g)':'var(--a)'}"></div>
+      </div>
+      <span class="top3-pct">${Math.round(item.conf*100)}%</span>
+    </div>`;
+  }).join('');
+}
+
+// ── ESP32 ────────────────────────────────────────────
+async function sendToESP() {
+  const msg = lastPrediction ||
+    document.getElementById('predPhrase').textContent;
+  if (!msg || msg === 'Show a gesture') {
+    notify('Nothing to send', true); return;
+  }
+  const ip = document.getElementById('espIP').value;
+  try {
+    await fetch(
+      `http://${ip}/display?text=${encodeURIComponent(msg)}`,
+      {mode:'no-cors', signal:AbortSignal.timeout(3000)}
+    );
+    notify('Sent: ' + msg);
+  } catch(e) { notify('ESP32 not reachable', true); }
+}
+
+// ── DATASET SUMMARY ──────────────────────────────────
+function updateDatasetSummary() {
+  const el = document.getElementById('datasetSummary');
+  if (!el) return;
+  const counts = GESTURES.map(g => gestureData[g.id].length);
+  const total  = counts.reduce((a,b)=>a+b,0);
+  const ready  = counts.filter(c=>c>=10).length;
+  const missing = GESTURES
+    .filter(g=>gestureData[g.id].length<10)
+    .map(g=>g.name);
+
+  el.innerHTML = `
+    <div style="display:flex;gap:16px;margin-bottom:12px">
+      <div class="stat">
+        <div class="stat-v">${total}</div>
+        <div class="stat-l">Total Samples</div>
+      </div>
+      <div class="stat">
+        <div class="stat-v" style="color:var(--g)">${ready}/16</div>
+        <div class="stat-l">Gestures Ready</div>
+      </div>
+      <div class="stat">
+        <div class="stat-v" style="color:var(--o)">
+          ${Math.min(...counts)}</div>
+        <div class="stat-l">Min Samples</div>
+      </div>
+    </div>
+    ${missing.length > 0
+      ? `<div style="font-size:12px;color:var(--o);font-family:var(--mono)">
+           ⚠ Need more samples: ${missing.slice(0,4).join(', ')}
+           ${missing.length>4?'...':''}
+         </div>`
+      : `<div style="font-size:12px;color:var(--g);font-family:var(--mono)">
+           ✓ All gestures ready — click Train!
+         </div>`
+    }`;
+}
+
+// ── UI HELPERS ───────────────────────────────────────
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p =>
+    p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t =>
+    t.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  event.target.classList.add('active');
+  if (name === 'train') updateDatasetSummary();
+}
+
+function tlog(msg, type='info') {
+  const box = document.getElementById('trainLog');
+  if (!box) return;
+  const d = document.createElement('div');
+  d.className = 'log-'+type;
+  d.textContent = '[' +
+    new Date().toLocaleTimeString('en',{hour12:false}) +
+    '] ' + msg;
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+}
+
+let notifTimer;
+function notify(msg, isErr=false) {
+  const n = document.getElementById('notif');
+  n.textContent = msg;
+  n.style.borderColor = isErr ? 'var(--r)' : 'var(--g)';
+  n.style.color = isErr ? 'var(--r)' : 'var(--g)';
+  n.classList.add('show');
+  clearTimeout(notifTimer);
+  notifTimer = setTimeout(()=>n.classList.remove('show'), 3000);
+}
+</script>
+</body>
+</html>
